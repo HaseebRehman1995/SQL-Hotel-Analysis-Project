@@ -1,0 +1,174 @@
+1. Find the Top 5 Highest-Rated Hotels in Each Country
+
+WITH base_query AS (
+  SELECT hotels.name, hotels.city, rating, country, 
+         DENSE_RANK() OVER (PARTITION BY country ORDER BY rating DESC) AS country_rating,
+         COUNT(city) OVER (PARTITION BY country) AS country_counts 
+  FROM hotels
+)
+SELECT name, city 
+FROM base_query
+WHERE country_rating IN (1, 2, 3, 4, 5)
+ORDER BY country_counts DESC;
+
+Description: This query uses the DENSE_RANK() window function to rank hotels within each country by their rating in descending order. The COUNT() window function counts the total cities per country. The final output displays the top 5 highest-rated hotels per country, ordered by the number of cities in each country.
+
+2. Guests Staying in Hotels Matching Their Nationality
+
+SELECT CONCAT(guests.first_name, " ", guests.last_name) AS name_of_guest_stay_in_same_hotel_as_their_nationality_is
+FROM guests
+JOIN reservations ON guests.guest_id = reservations.guest_id
+JOIN rooms ON reservations.room_id = rooms.room_id
+JOIN hotels ON rooms.hotel_id = hotels.hotel_id 
+WHERE guests.nationality = hotels.country;
+
+Description: This query identifies guests whose nationality matches the country of the hotel they stayed in by performing multiple joins between guests, reservations, rooms, and hotels. The result includes the names of such guests.
+
+3. Find All Rooms That Have Never Been Reserved
+
+SELECT rooms.room_number, rooms.room_type, hotels.name
+FROM rooms
+JOIN hotels ON rooms.hotel_id = hotels.hotel_id
+WHERE rooms.room_id IN (
+  SELECT rooms.room_id
+  FROM rooms
+  LEFT JOIN reservations ON rooms.room_id = reservations.room_id
+  WHERE reservations.room_id IS NULL
+);
+
+Description: Using a LEFT JOIN with a NULL filter, this query identifies rooms that have never been reserved. It lists the room number, type, and the hotel they belong to.
+
+4. Guests Staying in Highly Rated Hotels
+
+SELECT CONCAT(guests.first_name, ' ', guests.last_name) AS guest_name, hotels.name, hotels.city
+FROM guests
+JOIN reservations ON guests.guest_id = reservations.guest_id
+JOIN rooms ON reservations.room_id = rooms.room_id
+JOIN hotels ON rooms.hotel_id = hotels.hotel_id 
+WHERE hotels.rating > 4.5;
+
+Description: This query filters hotels with a rating greater than 4.5 and retrieves the names of guests who stayed there, along with the hotel name and city. The filtering is done via a WHERE clause.
+
+5. Update Reservation Status to 'Checked-Out'
+
+UPDATE reservations
+SET reservations.reservation_status = "Checked-Out"
+WHERE reservations.check_out_date < CURDATE() AND reservations.reservation_status != "Checked-Out";
+
+Description: This query updates the reservation_status to "Checked-Out" for all reservations with a check_out_date earlier than the current date. The AND condition ensures that only non-"Checked-Out" statuses are updated.
+
+6. Mark Rooms as Available if Reservation is Cancelled
+
+UPDATE rooms
+SET is_available = TRUE
+WHERE room_id IN (
+  SELECT room_id 
+  FROM reservations
+  WHERE reservations.reservation_status = "Cancelled"
+);
+
+Description: This query identifies rooms associated with canceled reservations using a subquery and sets their is_available status to TRUE.
+
+7. Add a 20% Surcharge for Suites in Dubai
+
+UPDATE payments
+SET amount_paid = amount_paid + (amount_paid * 0.20)
+WHERE reservation_id IN (
+  SELECT reservation_id 
+  FROM reservations
+  JOIN rooms ON reservations.room_id = rooms.room_id
+  JOIN hotels ON rooms.hotel_id = hotels.hotel_id
+  WHERE hotels.city = "Dubai" AND rooms.room_type = "Suite"
+);
+
+Description: This query applies a 20% surcharge to payments for reservations involving suites in Dubai by filtering through multiple joins and updating the amount_paid.
+
+8. Calculate Total Revenue by Hotel
+
+SELECT hotels.name AS hotel_name, hotels.city, SUM(payments.amount_paid) AS total_revenue
+FROM hotels
+JOIN rooms ON hotels.hotel_id = rooms.hotel_id
+JOIN reservations ON reservations.room_id = rooms.room_id
+JOIN payments ON reservations.reservation_id = payments.reservation_id
+WHERE reservations.reservation_status <> "Cancelled"
+GROUP BY hotels.name, hotels.city
+ORDER BY total_revenue DESC;
+
+Description: This query calculates the total revenue per hotel by summing up the amount_paid for non-canceled reservations. It groups data by hotel and city.
+
+9. Most Frequently Booked Room Types
+
+SELECT rooms.room_type, COUNT(reservations.reservation_id) AS number_of_booking 
+FROM rooms
+JOIN reservations ON rooms.room_id = reservations.room_id
+GROUP BY rooms.room_type
+ORDER BY number_of_booking DESC;
+
+Description: By grouping by room_type and counting reservations, this query ranks room types by their booking frequency.
+
+10. Room Type Reservation Count and Percentage
+
+WITH base_query AS (
+  SELECT rooms.room_type, COUNT(reservations.reservation_id) AS count_of_reservations 
+  FROM rooms
+  JOIN reservations ON rooms.room_id = reservations.room_id 
+  GROUP BY rooms.room_type
+),
+initial_query AS (
+  SELECT *, SUM(count_of_reservations) OVER() AS total_reserve 
+  FROM base_query
+)
+SELECT room_type, count_of_reservations, 
+       CONCAT(CEIL(count_of_reservations / total_reserve * 100), "%") AS percentage_reservations 
+FROM initial_query 
+ORDER BY percentage_reservations DESC;
+
+Description: This query calculates the count and percentage of reservations for each room type using COUNT() and SUM() window functions for aggregation.
+
+11. Identify the Guest Spending the Most
+
+SELECT CONCAT(guests.first_name, guests.last_name) AS full_name, guests.email, SUM(payments.amount_paid) AS total_amount_spent
+FROM guests
+JOIN reservations ON guests.guest_id = reservations.reservation_id
+JOIN payments ON reservations.reservation_id = payments.reservation_id 
+GROUP BY guests.first_name, guests.email
+ORDER BY total_amount_spent DESC
+LIMIT 3;
+
+Description: This query calculates the total spending for each guest using SUM() and identifies the top spender.
+
+12. Hotels with Above-Average Room Prices
+
+SELECT hotels.name, AVG(payments.amount_paid) AS average_price
+FROM hotels
+JOIN rooms ON hotels.hotel_id = rooms.hotel_id
+JOIN reservations ON rooms.room_id = reservations.room_id
+JOIN payments ON reservations.reservation_id = payments.reservation_id 
+GROUP BY hotels.name
+HAVING average_price > (SELECT AVG(payments.amount_paid) FROM payments) 
+ORDER BY average_price DESC;
+
+Description: The query compares the average room price for each hotel with the overall average using the HAVING clause.
+
+13. Reservations with Total Spend > $1000
+
+SELECT CONCAT(guests.first_name, ' ', guests.last_name) AS full_name, SUM(payments.amount_paid) AS amount_spend
+FROM guests
+JOIN reservations ON guests.guest_id = reservations.guest_id
+JOIN payments ON reservations.reservation_id = payments.reservation_id 
+GROUP BY guests.first_name 
+HAVING amount_spend > 1000
+ORDER BY SUM(payments.amount_paid) DESC;
+
+Description: This query identifies guests whose total spending exceeds $1000 by using HAVING for post-aggregation filtering.
+
+14. Rank Rooms by Price in Each Hotel
+
+SELECT hotels.name, rooms.room_number, rooms.price_per_night AS rate_per_night, 
+       DENSE_RANK() OVER(PARTITION BY hotels.name ORDER BY rooms.price_per_night DESC) AS rate_per_night_ranking
+FROM hotels
+JOIN rooms ON hotels.hotel_id = rooms.hotel_id
+GROUP BY hotels.name, rooms.room_number 
+ORDER BY hotels.name, rate_per_night_ranking;
+
+Description: This query ranks rooms in each hotel by their price using the DENSE_RANK() window function, displaying the room number, price, and rank.
